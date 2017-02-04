@@ -28,7 +28,7 @@ class WheelTimer(object):
         self.__lifecycle = self.__STATE_INIT
         self.__tick_duration = self.millis_to_micro(tick_duration_millis)
         self.__executor_q = Queue()
-        self.__cancelled_q = Queue()
+        self.__canceled_q = Queue()
         self.__remaining_after_stop = []
         self.__wheel = self.__create_wheel(ticks_in_wheel, self.__executor_q)
         self.__start_time = None
@@ -77,7 +77,7 @@ class WheelTimer(object):
         task_delay = self.millis_to_micro(delay_millis)
         runtime = self.__clock.microseconds() - self.__start_time
         expiry = runtime + task_delay
-        timertask = self.TimerTask(expiry, task, self.__cancelled_q)
+        timertask = self.TimerTask(expiry, task, self.__canceled_q)
 
         with self.__lock:
             if self.__lifecycle == self.__STATE_STOPPED:
@@ -124,7 +124,7 @@ class WheelTimer(object):
             self.__ensure_start_time_not_changed(start_time)
             runtime = self.__sleep_until_next_tick(ticks)
             self.__assign_timer_tasks(ticks)
-            self.__remove_cancelled_tasks()
+            self.__remove_canceled_tasks()
             bucket_index = int(ticks % wheel_len)
             bucket = wheel[bucket_index]
             bucket._fire_expiry(runtime)
@@ -138,7 +138,7 @@ class WheelTimer(object):
             for task in self.__unassigned_timer_tasks:
                 self.__remaining_after_stop.append(task)
 
-        self.__remove_cancelled_tasks()
+        self.__remove_canceled_tasks()
 
     def stop(self):
         self.__lifecycle = self.__STATE_STOPPED
@@ -179,8 +179,8 @@ class WheelTimer(object):
         tick_dur = self.__tick_duration
         wheel = self.__wheel
         for task in tasks_to_assign:
-            if task._cancelled:
-                # could have been cancelled by the time we assign
+            if task._canceled:
+                # could have been canceledby the time we assign
                 continue
 
             expiry = task._expiry
@@ -195,10 +195,10 @@ class WheelTimer(object):
             task._remaining_passes = remaining_passes
             bucket._add_task(task)
 
-    def __remove_cancelled_tasks(self):
+    def __remove_canceled_tasks(self):
         cancels = 10000
-        while self.__cancelled_q.qsize() > 0 and cancels > 0:
-            task = self.__cancelled_q.get(block=False)
+        while self.__canceled_q.qsize() > 0 and cancels > 0:
+            task = self.__canceled_q.get(block=False)
             task._remove()
             cancels -= 1
 
@@ -209,7 +209,7 @@ class WheelTimer(object):
             self._bucket = None
             self._next = None
             self._prev = None
-            self._cancelled = False
+            self._canceled = False
             self._expired = False
             self._sys_aborted = False
             self._lock = threading.Lock()
@@ -218,7 +218,7 @@ class WheelTimer(object):
             self._cancel_q = cancel_q
 
         def cancel(self):
-            self._cancelled = True
+            self._canceled = True
             self._cancel_q.put_nowait(self)
 
         def _remove(self):
@@ -229,8 +229,8 @@ class WheelTimer(object):
             s = '['
             s += self.__class__.__name__
             s += ' expiry=%d' % self._expiry
-            s += ' passes=%d' % self._remaining_passes
-            s += ' cancelled=%s' % str(self._cancelled)
+            s += ' canceled=%s' % str(self._canceled)
+            s += ' expired=%s' % str(self._expired)
             s += ' callable=%s' % str(self._callable)
             s += ']'
 
@@ -262,7 +262,7 @@ class WheelTimer(object):
                                 self._execution_q.put_nowait(task._callable)
                     else:
                         raise ValueError('placed in wrong bucket or passes')
-                elif task._cancelled:
+                elif task._canceled:
                     nxt = self._remove_task(task)
                 else:
                     task._remaining_passes -= 1
@@ -300,15 +300,15 @@ class WheelTimer(object):
 
         def _clear_all(self, collector):
             while True:
-                task = self.__pop_first()
+                task = self.__remove_head()
                 if task is None:
                     break
                 with task._lock:
-                    if not task.is_cancelled and not task._is_expired:
+                    if not task._canceled and not task._expired:
                         task._sys_aborted = True
                         collector.append(task)
 
-        def __pop_first(self):
+        def __remove_head(self):
             if self._head is None:
                 return None
 
@@ -317,9 +317,8 @@ class WheelTimer(object):
                 self._head = None
                 self._tail = None
             else:
-                nxt = head._next
-                self._head = nxt
-                nxt._prev = None
+                self._head = head._next
+                self._head._prev = None
 
             self.__clear_task_references(head)
             return head
@@ -328,7 +327,6 @@ class WheelTimer(object):
             task._next = None
             task._prev = None
             task._bucket = None
-            task._callable = None
             task._cancel_q = None
 
     def __ensure_worker_context(self):
