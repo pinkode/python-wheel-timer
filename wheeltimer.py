@@ -272,7 +272,7 @@ class WheelTimer(object):
         def _remove_task(self, task):
             nxt = task._next
             if task._prev is not None:
-                task._prev._next = task._next
+                task._prev._next = nxt
             if task._next is not None:
                 task._next._prev = task._prev
 
@@ -281,7 +281,7 @@ class WheelTimer(object):
                     self._head = None
                     self._tail = None
                 else:
-                    self.head = task._next
+                    self.head = nxt
             elif task is self._tail:
                 self._tail = task._prev
 
@@ -289,8 +289,10 @@ class WheelTimer(object):
             return nxt
 
         def _add_task(self, task):
-            head = self._head
-            if head is None:
+            if task is None:
+                raise ValueError('timeout task is None')
+
+            if self._head is None:
                 self._head = task
                 self._tail = task
             else:
@@ -302,26 +304,27 @@ class WheelTimer(object):
             while True:
                 task = self.__remove_head()
                 if task is None:
-                    break
+                    return
                 with task._lock:
                     if not task._canceled and not task._expired:
                         task._sys_aborted = True
                         collector.append(task)
 
         def __remove_head(self):
-            if self._head is None:
+            head_ = self._head
+            if head_ is None:
                 return None
 
-            head = self._head
-            if head._next is None:
+            nxt = head_._next
+            if nxt is None:
                 self._head = None
                 self._tail = None
             else:
-                self._head = head._next
-                self._head._prev = None
+                self._head = nxt
+                nxt._prev = None
 
-            self.__clear_task_references(head)
-            return head
+            self.__clear_task_references(head_)
+            return head_
 
         def __clear_task_references(self, task):
             task._next = None
