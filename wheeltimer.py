@@ -281,7 +281,7 @@ class WheelTimer(object):
                     self._head = None
                     self._tail = None
                 else:
-                    self.head = nxt
+                    self._head = nxt
             elif task is self._tail:
                 self._tail = task._prev
 
